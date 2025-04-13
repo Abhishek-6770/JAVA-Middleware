@@ -1,0 +1,81 @@
+name: Deploy to Tomcat, JBoss, and WebSphere (local)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-all:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Set up Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Build WAR
+      run: mvn clean package
+
+    ##############################
+    # 1. Apache Tomcat
+    ##############################
+    - name: Download Tomcat
+      run: |
+        wget https://dlcdn.apache.org/tomcat/tomcat-10/v10.1.20/bin/apache-tomcat-10.1.20.tar.gz
+        tar -xzf apache-tomcat-10.1.20.tar.gz
+        mv apache-tomcat-10.1.20 tomcat
+
+    - name: Deploy WAR to Tomcat
+      run: |
+        cp target/*.war tomcat/webapps/
+        chmod +x tomcat/bin/*.sh
+        nohup tomcat/bin/startup.sh &
+        sleep 10
+
+    - name: Test Tomcat Deployment
+      run: curl -I http://localhost:8080/java-webapp/ || true
+
+    ##############################
+    # 2. JBoss / WildFly
+    ##############################
+    - name: Download WildFly
+      run: |
+        wget https://github.com/wildfly/wildfly/releases/download/30.0.0.Final/wildfly-30.0.0.Final.tar.gz
+        tar -xzf wildfly-30.0.0.Final.tar.gz
+        mv wildfly-30.0.0.Final wildfly
+
+    - name: Deploy WAR to WildFly
+      run: |
+        cp target/*.war wildfly/standalone/deployments/
+        chmod +x wildfly/bin/*.sh
+        nohup wildfly/bin/standalone.sh -b=0.0.0.0 > wildfly.log 2>&1 &
+        sleep 30
+
+    - name: Test WildFly Deployment
+      run: curl -I http://localhost:8080/java-webapp/ || true
+
+    ##############################
+    # 3. WebSphere Liberty
+    ##############################
+    - name: Download WebSphere Liberty
+      run: |
+        curl -LO https://public.dhe.ibm.com/ibmdl/export/pub/software/websphere/wasdev/downloads/wlp/23.0.0.12/wlp-kernel-23.0.0.12.zip
+        unzip wlp-kernel-23.0.0.12.zip
+        mv wlp wlp-install
+
+    - name: Create Liberty Server
+      run: |
+        wlp-install/bin/server create defaultServer
+        cp target/*.war wlp-install/usr/servers/defaultServer/dropins/
+
+    - name: Start Liberty
+      run: |
+        nohup wlp-install/bin/server start defaultServer &
+        sleep 15
+
+    - name: Test Liberty Deployment
+      run: curl -I http://localhost:9080/java-webapp/ || true
